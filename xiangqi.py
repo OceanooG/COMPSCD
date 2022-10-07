@@ -1,5 +1,4 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
+
 
 import argparse
 import re
@@ -7,9 +6,7 @@ import time
 from collections import namedtuple
 from itertools import count
 
-###############################################################################
-# Piece-Square tables. Tune these to change sunfish's behaviour
-###############################################################################
+
 uni_pieces = {'R': '🩤', 'H': '🩣', 'E': '🩢', 'A': '🩡', 'K': '🩠', 'C': '🩥', 'P': '🩦',
               'r': '🩫', 'h': '🩪', 'e': '🩩', 'a': '🩨', 'k': '🩧', 'c': '🩬', 'p': '🩭', '.': '·'}
 chinese_pieces = {'R': '车', 'H': '马', 'E': '相', 'A': '仕', 'K': '帅', 'C': '炮', 'P': '兵',
@@ -115,19 +112,14 @@ def padrow(row):
     return result
 
 
-# Pad tables and join piece and pst dictionaries
+
 for k, table in pst.items():
     pst[k] = sum((padrow(table[i * CHESS_COLUMN:(i+1)*CHESS_COLUMN])
                   for i in range(CHESS_ROW)), ())
     pst[k] = (0,) * 22 + pst[k] + (0,) * 22
     pst[k] = pst[k]
 
-###############################################################################
-# Global constants
-###############################################################################
 
-# Our board is represented as a 120 character string. The padding allows for
-# fast detection of moves that don't stay within the board.
 initial = (
     '          \n'
     '          \n'
@@ -146,7 +138,7 @@ initial = (
     '          \n'
 )
 
-# Lists of possible moves for each piece type.
+
 N, E, S, W = -BOARD_COLUMN, 1, BOARD_COLUMN, -1
 directions = {
     'P': (N, W, E),
@@ -158,28 +150,23 @@ directions = {
     'K': (N, E, S, W)
 }
 
-# Mate value must be greater than all the other values
-# King value is set to twice this value such that if the opponent is
-# 8 queens up, but we got the king, we still exceed MATE_VALUE.
-# When a MATE is detected, we'll set the score to MATE_UPPER - plies to get there
-# E.g. Mate in 3 will be MATE_UPPER - 6
+
 MATE_LOWER = piece['K'] - 2 * (piece['R'] + piece['H'] +
                                piece['C'] + piece['A'] + piece['E'] + 2.5 * piece['P'])
 MATE_UPPER = piece['K'] + 2 * (piece['R'] + piece['H'] +
                                piece['C'] + piece['A'] + piece['E'] + 2.5 * piece['P'])
 
-# The table size is the maximum number of elements in the transposition table.
+
 TABLE_SIZE = 1e7
 
-# Constants for tuning search
+
 QS_LIMIT = 219
 EVAL_ROUGHNESS = 13
 DRAW_TEST = True
 
 
-###############################################################################
 # Chess logic
-###############################################################################
+
 
 class Position(namedtuple('Position', 'board score')):
     """ A state of a chess game
@@ -188,9 +175,7 @@ class Position(namedtuple('Position', 'board score')):
     """
 
     def gen_moves(self):
-        # For each of our pieces, iterate through each possible 'ray' of moves,
-        # as defined in the 'directions' map. The rays are broken e.g. by
-        # captures or immediately in case of pieces such as horse.
+
         for i, p in enumerate(self.board):
             if not p.isupper():
                 continue
@@ -278,11 +263,7 @@ class Position(namedtuple('Position', 'board score')):
         return score
 
 
-###############################################################################
-# Search logic
-###############################################################################
 
-# lower <= s(pos) <= upper
 Entry = namedtuple('Entry', 'lower upper')
 
 
@@ -293,36 +274,16 @@ class Searcher:
         self.history = set()
 
     def bound(self, pos, mid, depth, root=True):
-        """ returns r where
-                s(pos) <= r < mid    if mid > s(pos)
-                mid <= r <= s(pos)   if mid <= s(pos)"""
 
-        # Depth <= 0 is QSearch. Here any position is searched as deeply as is needed for
-        # calmness, and from this point on there is no difference in behaviour depending on
-        # depth, so so there is no reason to keep different depths in the transposition table.
+     
         depth = max(depth, 0)
-
-        # Sunfish is a king-capture engine, so we should always check if we
-        # still have a king. Notice since this is the only termination check,
-        # the remaining code has to be comfortable with being mated, stalemated
-        # or able to capture the opponent king.
         if pos.score <= -MATE_LOWER:
             return -MATE_UPPER
 
-        # We detect 3-fold captures by comparing against previously
-        # _actually played_ positions.
-        # Note that we need to do this before we look in the table, as the
-        # position may have been previously reached with a different score.
-        # This is what prevents a search instability.
-        # FIXME: This is not true, since other positions will be affected by
-        # the new values for all the drawn positions.
         if DRAW_TEST:
             if not root and pos in self.history:
                 return 0
 
-        # Look in the table if we have already searched this position before.
-        # We also need to be sure, that the stored search was over the same
-        # nodes as the current search.
         entry = self.tp_score.get(
             (pos, depth, root), Entry(-MATE_UPPER, MATE_UPPER))
         if entry.lower >= mid and (not root or self.tp_move.get(pos) is not None):
@@ -330,32 +291,19 @@ class Searcher:
         if entry.upper < mid:
             return entry.upper
 
-        # Here extensions may be added
-        # Such as 'if in_check: depth += 1'
-
-        # Generator of moves to search in order.
-        # This allows us to define the moves, but only calculate them if needed.
         def moves():
-            # First try not moving at all. We only do this if there is at least one major
-            # piece left on the board, since otherwise zugzwangs are too dangerous.
+
             if depth > 0 and not root and any(c in pos.board for c in 'RHCP'):
                 yield None, -self.bound(pos.rotate(), 1 - mid, depth - 3, root=False)
-            # For QSearch we have a different kind of null-move, namely we can just stop
-            # and not capture anything else.
+
             if depth == 0:
                 yield None, pos.score
-            # Then killer move. We search it twice, but the tp will fix things for us.
-            # Note, we don't have to check for legality, since we've already done it
-            # before. Also note that in QS the killer must be a capture, otherwise we
-            # will be non deterministic.
+
             killer = self.tp_move.get(pos)
             if killer and (depth > 0 or pos.value(killer) >= QS_LIMIT):
-                yield killer, -self.bound(pos.move(killer), 1 - mid, depth - 1, root=False)
-            # Then all the other moves
+
             for move in sorted(pos.gen_moves(), key=pos.value, reverse=True):
-                # for val, move in sorted(((pos.value(move), move) for move in pos.gen_moves()), reverse=True):
-                # If depth == 0 we only try moves with high intrinsic score (captures and
-                # promotions). Otherwise we do all moves.
+
                 if depth > 0 or pos.value(move) >= QS_LIMIT:
                     yield move, -self.bound(pos.move(move), 1 - mid, depth - 1, root=False)
 
@@ -371,16 +319,7 @@ class Searcher:
                 self.tp_move[pos] = move
                 break
 
-        # Stalemate checking is a bit tricky: Say we failed low, because
-        # we can't (legally) move and so the (real) score is -infinity.
-        # At the next depth we are allowed to just return r, -infinity <= r < gamma,
-        # which is normally fine.
-        # However, what if gamma = -10 and we don't have any legal moves?
-        # Then the score is actually a draw and we should fail high!
-        # Thus, if best < gamma and best < 0 we need to double check what we are doing.
-        # This doesn't prevent sunfish from making a move that results in stalemate,
-        # but only if depth == 1, so that's probably fair enough.
-        # (Btw, at depth 1 we can also mate without realizing.)
+
         if best < mid and best < 0 and depth > 0:
             def is_dead(pos): return any(pos.value(m) >=
                                          MATE_LOWER for m in pos.gen_moves())
@@ -406,13 +345,8 @@ class Searcher:
             # print('# Clearing table due to new history')
             self.tp_score.clear()
 
-        # In finished games, we could potentially go far enough to cause a recursion
-        # limit exception. Hence we bound the ply.
         for depth in range(1, 1000):
-            # The inner loop is a binary search on the score of the position.
-            # Inv: lower <= score <= upper
-            # 'while lower != upper' would work, but play tests show a margin of 20 plays
-            # better.
+
             lower, upper = -MATE_UPPER, MATE_UPPER
             while lower < upper - EVAL_ROUGHNESS:
                 mid = (lower + upper + 1) // 2
@@ -421,17 +355,12 @@ class Searcher:
                     lower = score
                 if score < mid:
                     upper = score
-            # We want to make sure the move to play hasn't been kicked out of the table,
-            # So we make another call that must always fail high and thus produce a move.
+
             self.bound(pos, lower, depth)
-            # If the game hasn't finished we can retrieve our move from the
-            # transposition table.
+
             yield depth, self.tp_move.get(pos), self.tp_score.get((pos, depth, True)).lower
 
 
-###############################################################################
-# User interface
-###############################################################################
 
 A1 = CHESS_ROW*BOARD_COLUMN+1
 
@@ -459,8 +388,6 @@ def print_pos(pos, width=2, piece_type='unicode'):
 
 
 def parse_move(move, board, is_red):
-    # import ipdb
-    # ipdb.set_trace()
     piece = board[move[0]]
     number_chinese = dict(zip(range(1, 10), '一二三四五六七八九'))
     name = chinese_pieces[piece if is_red else piece.lower()]
@@ -497,8 +424,6 @@ def main(arg):
         if hist[-1].score <= -MATE_LOWER:
             print("You lost")
             break
-
-        # We query the user until she enters a (pseudo) legal move.
         move = None
 
         while True:
@@ -516,8 +441,6 @@ def main(arg):
         parse_move(move, hist[-1].board, True)
         hist.append(hist[-1].move(move))
 
-        # After our move we rotate the board and print it again.
-        # This allows us to see the effect of our move.
         print_pos(hist[-1].rotate(), arg.width, arg.piece)
 
         if hist[-1].score <= -MATE_LOWER:
@@ -533,8 +456,7 @@ def main(arg):
         if score == MATE_UPPER:
             print("Checkmate!")
 
-        # The black player moves from a rotated position, so we have to
-        # 'back rotate' the move before printing it.
+
         print("My move: ", end='')
         parse_move(move, hist[-1].board, False)
         hist.append(hist[-1].move(move))

@@ -3,17 +3,18 @@ from time import sleep
 import copy
 from random import choice
 import datetime
-from math import log, sqrt, e, inf
+from math import inf
+
 
 SIDEWAYS_DIRECTIONS = [[0, 1], [1, 0], [0, -1], [-1, 0]]
 DIAGONAL_DIRECTIONS = [[1, 1], [1, -1], [-1, -1], [-1, 1]]
 DOUBLE_DIAGONAL = [[2, 2], [2, -2], [-2, -2], [-2, 2]]
 HORSE_DIRECTIONS = [[2, 1], [2, -1], [-2, -1], [-2, 1], [1, 2], [1, -2], [-1, -2], [-1, 2]]
 
-ITERATIONS = 60
+ITERATIONS = 2
 MAX_DEPTH = 10
 
-STATIC_EVAL_DIVISOR = 30
+STATIC_EVAL_DIVISOR = 55
 
 # store board(9*10)
 def setup_board():
@@ -63,11 +64,20 @@ def find_piece(board, piece):
         for j in range(len(board[0])):
             if board[i][j] == piece:
                 return i, j
-    # print('cannot find', board, piece)
+    print('cannot find', board, piece)
     return False
 
 
-def find_all_legal_moves(board, side_to_move, check_matters=True):
+def is_check(board, side_to_protect):
+    moves_for_enemy = find_all_legal_moves(board, other_side(side_to_protect), specials_matter=False)
+    my_king_x, my_king_y = find_piece(board, side_to_protect + '_j')
+    for enemy_move in moves_for_enemy:
+        if enemy_move[2] == my_king_x and enemy_move[3] == my_king_y:
+            return True
+    return False
+
+
+def find_all_legal_moves(board, side_to_move, specials_matter=True):
     all_legal_moves = []
     for mover_x in range(0, 10):
         for mover_y in range(0, 9):
@@ -127,6 +137,7 @@ def find_all_legal_moves(board, side_to_move, check_matters=True):
                             break
                         elif other_side(side_to_move) in board[temp_pos[0]][temp_pos[1]]:
                             all_legal_moves.append([mover_x, mover_y, temp_pos[0], temp_pos[1]])
+                            break
                         else:
                             all_legal_moves.append([mover_x, mover_y, temp_pos[0], temp_pos[1]])
                         temp_pos = [temp_pos[0] + direction[0], temp_pos[1] + direction[1]]
@@ -179,41 +190,35 @@ def find_all_legal_moves(board, side_to_move, check_matters=True):
                                 all_legal_moves.append([mover_x, mover_y] + new_coords)
 
     # eliminate general opposition moves
-    with_general_legal = []
-    other_king_coords = find_piece(board, other_side(side_to_move) + '_j')
-    for new in all_legal_moves:
-        if other_king_coords[1] == new[3]:  # moved to the same column
-            found_piece_in_between = False
-            for i in range(0, 9):
-                if (i <= other_king_coords[0] and i <= new[2]) or (
-                        i >= other_king_coords[0] and i >= new[2]):
-                    if board[i][other_king_coords[1]] != '':
-                        found_piece_in_between = True
-                        break
-            if found_piece_in_between:
-                with_general_legal.append(new)
-        else:
-            with_general_legal.append(new)
-
-    # eliminate moves that are illegal because of check
-    if check_matters:
-        final = []
-        for move in with_general_legal:
+    final = []
+    if specials_matter:
+        for move in all_legal_moves:
             board_after_move = apply_move_to_board(board, move)
-            legal_moves_for_enemy_after_move = find_all_legal_moves(board_after_move, other_side(side_to_move), check_matters=False)
 
-            my_king_x, my_king_y = find_piece(board_after_move, side_to_move + '_j')
-            legal = True
-            for m in legal_moves_for_enemy_after_move:
-                if m[2] == my_king_x and m[3] == my_king_y:
-                    legal = False
-                    break
-            if legal:
+            # general opposition
+            general_good = False
+            my_king_coords = find_piece(board_after_move, side_to_move + '_j')
+            other_king_coords = find_piece(board_after_move, other_side(side_to_move) + '_j')
+
+            if other_king_coords[1] == my_king_coords[1]:  # moved to the same column
+                found_piece_in_between = False
+                for i in range(0, 9):
+                    if (i <= other_king_coords[0] and i <= my_king_coords[0]) or (
+                            i >= other_king_coords[0] and i >= my_king_coords[0]):
+                        if board[i][other_king_coords[1]] != '':
+                            found_piece_in_between = True
+                            break
+                if found_piece_in_between:
+                    general_good = True
+            else:
+                general_good = True
+
+            # sum
+            if (not is_check(board_after_move, side_to_move)) and general_good:
                 final.append(move)
+        return final
     else:
-        final = with_general_legal
-
-    return final
+        return all_legal_moves
 
 
 def apply_move_to_board(board, move):
@@ -269,7 +274,7 @@ def random_player(board, side_to_move):
 
 def mcts_player(board, side_to_move):
     root = Node(board)
-    result_move = mcts_pred(root, is_game_over(board, side_to_move), side_to_move)
+    result_move = mcts_pred(root, side_to_move)
     return result_move
 
 
@@ -288,23 +293,29 @@ class Node:
 
 
 def ucb1(curr_node):
-    ans = curr_node.v + 2 * (sqrt(log(curr_node.N + e + (10 ** -6)) / (curr_node.n + (10 ** -10))))
+    if not curr_node.N == 0:
+        ans = curr_node.v / curr_node.N
+    else :
+        return 0
+    # ans = curr_node.v + 2 * (sqrt(log(curr_node.N + e + (10 ** -6)) / (curr_node.n + (10 ** -10))))
     return ans
 
 
 def rollout(curr_node, side_to_move, current_depth):
     if is_game_over(curr_node.state, side_to_move):
         if side_to_move == 'r':
-            # print("h1")
-            return 1, curr_node
+            # print("h1", current_depth)
+            return -1, curr_node, current_depth
         elif side_to_move == 'b':
-            # print("h2")
-            return -1, curr_node
+            # print("h2", current_depth)
+            return 1, curr_node, current_depth
     if current_depth >= MAX_DEPTH:
-        return sum(static_evaluation(curr_node.get_board())) / STATIC_EVAL_DIVISOR, curr_node
+        # print('h3', current_depth)
+        stat_ev = static_evaluation(curr_node.get_board())
+        # return 0, curr_node, current_depth
+        return (stat_ev[0] - stat_ev[1]) / STATIC_EVAL_DIVISOR, curr_node, current_depth
 
     all_moves = find_all_legal_moves(curr_node.get_board(), side_to_move)
-
     for move in all_moves:
         tmp_state = curr_node.get_board()
         tmp_state = apply_move_to_board(tmp_state, move)
@@ -316,55 +327,55 @@ def rollout(curr_node, side_to_move, current_depth):
     return rollout(rnd_state, other_side(side_to_move), current_depth + 1)
 
 
-def expand(curr_node, side_to_move):
+
+def expand(curr_node, side_to_move, real_starter_side_to_move):
     if len(curr_node.children) == 0:
-        return curr_node
-    max_ucb = -inf
+        if side_to_move == real_starter_side_to_move:
+            return curr_node
+        else:
+            return curr_node.parent
+
     if side_to_move == 'r':
-        idx = -1
         max_ucb = -inf
-        sel_child = None
+        selected_child = None
         for i in curr_node.children:
             tmp = ucb1(i)
             if (tmp > max_ucb):
-                idx = i
                 max_ucb = tmp
-                sel_child = i
+                selected_child = i
 
-        return expand(sel_child, 'b')
+        return expand(selected_child, 'b', real_starter_side_to_move)
 
     elif side_to_move == 'b':
-        idx = -1
         min_ucb = inf
-        sel_child = None
+        selected_child = None
         for i in curr_node.children:
             tmp = ucb1(i)
             if (tmp < min_ucb):
-                idx = i
                 min_ucb = tmp
-                sel_child = i
+                selected_child = i
 
-        return expand(sel_child, 'r')
+        return expand(selected_child, 'r', real_starter_side_to_move)
 
 
 def rollback(curr_node, reward):
     curr_node.n += 1
-    curr_node.v += reward
     while (curr_node.parent != None):
+        curr_node.v += reward
         curr_node.N += 1
         curr_node = curr_node.parent
     return curr_node
 
 
-def mcts_pred(curr_node, over, side_to_move, iterations=ITERATIONS):
-    if (over):
-        return -1
+def mcts_pred(curr_node, side_to_move, iterations=ITERATIONS):
     all_moves = find_all_legal_moves(curr_node.get_board(), side_to_move)
     map_state_move = dict()
 
+    # calculate children for current node
     for i in all_moves:
         temporary_board = curr_node.get_board()
         temporary_board = apply_move_to_board(temporary_board, i)
+
         child = Node(temporary_board)
 
         child.parent = curr_node
@@ -373,50 +384,44 @@ def mcts_pred(curr_node, over, side_to_move, iterations=ITERATIONS):
 
     while (iterations > 0):
         if side_to_move == 'r':
-            idx = -1
-            max_ucb = -inf
-            sel_child = None
-            for i in curr_node.children:
-                tmp = ucb1(i)
-                if (tmp > max_ucb):
-                    idx = i
-                    max_ucb = tmp
-                    sel_child = i
-            ex_child = expand(sel_child, 'b')
-            reward, state = rollout(ex_child, 'r', 1)
-            curr_node = rollback(state, reward)
+            for selected_child in curr_node.children:
+
+                # get a leaf node from a previously created tree of nodes
+                expanded_child = expand(selected_child, 'b', 'b')
+                # rollout child
+
+                reward, final_state, depth = rollout(expanded_child, 'b', 0)
+                reward -= depth * 0.001
+                # update values on the whole branch discovered by the rollout
+                _ = rollback(final_state, reward)
             iterations -= 1
+
+
         elif side_to_move == 'b':
-            idx = -1
-            min_ucb = inf
-            sel_child = None
-            for i in curr_node.children:
-                tmp = ucb1(i)
-                if (tmp < min_ucb):
-                    idx = i
-                    min_ucb = tmp
-                    sel_child = i
+            for selected_child in curr_node.children:
+                # get a leaf node from a previously created tree of nodes
+                expanded_child = expand(selected_child, 'r', 'r')
+                # rollout child
 
-            ex_child = expand(sel_child, 'r')
-
-            reward, state = rollout(ex_child, 'b', 1)
-
-            curr_node = rollback(state, reward)
+                reward, final_state, depth = rollout(expanded_child, 'r', 0)
+                reward += depth * 0.001
+                # update values on the whole branch discovered by the rollout
+                _ = rollback(final_state, reward)
             iterations -= 1
-    if side_to_move == 'r':
 
+    # choose best move from calculated children
+    if side_to_move == 'r':
         mx = -inf
-        idx = -1
         selected_move = ''
-        for i in (curr_node.children):
+        for i in curr_node.children:
             tmp = ucb1(i)
+            # print(i.v, i.n, i.N, ucb1(i))
             if (tmp > mx):
                 mx = tmp
                 selected_move = map_state_move[i]
         return selected_move
     elif side_to_move == 'b':
         mn = inf
-        idx = -1
         selected_move = ''
         for i in (curr_node.children):
             tmp = ucb1(i)
@@ -426,8 +431,8 @@ def mcts_pred(curr_node, over, side_to_move, iterations=ITERATIONS):
         return selected_move
 
 
-def is_game_over(board, side_to_move):
-    if len(find_all_legal_moves(board, side_to_move)) == 0:
+def is_game_over(my_board, side_to_move):
+    if len(find_all_legal_moves(my_board, side_to_move)) == 0:
         return True
     else:
         return False
@@ -435,26 +440,36 @@ def is_game_over(board, side_to_move):
 
 def main():
     board = setup_board()
+    '''
+    board = [['' for i in range(9)] for i in range(10)]
+    board[0][3] = 'b_j'
+    board[9][4] = 'r_j'
+    board[5][0] = 'r_c'
+    '''
+
     turn_counter = 0
     while not is_game_over(board, ['r', 'b'][turn_counter % 2]):
+        pygame.event.pump()
         time_before_move = datetime.datetime.now()
         display_board_with_gui(board)
-        while True:
-            try:
-                if turn_counter % 2 == 0:
-                    move = player1(board, 'r')
-                else:
-                    move = player2(board, 'b')
-                break
-            except:
-                pass
+
+        if turn_counter % 2 == 0:
+            move = player1(board, 'r')
+        else:
+            move = player2(board, 'b')
+
+
         st_ev = static_evaluation(board)
         board = apply_move_to_board(board, move)
+        display_board_with_gui(board)
 
-        print('Move', turn_counter)
+
+        print('Move', turn_counter, ', played by', ['r', 'b'][turn_counter % 2])
         print('Played move:', move)
         print('Board after move:', board)
+        print('Legal moves for other player:', find_all_legal_moves(board, ['r', 'b'][(turn_counter + 1) % 2]))
         print('Static evaluation:', st_ev[0] - st_ev[1])
+        print('Check:', is_check(board, ['r', 'b'][(turn_counter + 1) % 2]))
         print('Time passed:', (datetime.datetime.now() - time_before_move).total_seconds(), 's\n')
         turn_counter += 1
 
@@ -476,5 +491,4 @@ if __name__ == "__main__":
         pictures[name] = pygame.image.load('imgs/s2/' + name + '.png')
 
     main()
-
     sleep(120)

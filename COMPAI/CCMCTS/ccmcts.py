@@ -5,14 +5,13 @@ from random import choice
 import datetime
 from math import inf
 import os
-import PVN
 
 SIDEWAYS_DIRECTIONS = [[0, 1], [1, 0], [0, -1], [-1, 0]]
 DIAGONAL_DIRECTIONS = [[1, 1], [1, -1], [-1, -1], [-1, 1]]
 DOUBLE_DIAGONAL = [[2, 2], [2, -2], [-2, -2], [-2, 2]]
 HORSE_DIRECTIONS = [[2, 1], [2, -1], [-2, -1], [-2, 1], [1, 2], [1, -2], [-1, -2], [-1, 2]]
 
-ITERATIONS = 10
+ITERATIONS = 2
 MAX_DEPTH = 5
 
 STATIC_EVAL_DIVISOR = 55
@@ -51,7 +50,7 @@ def setup_board():
     board[9] = ['r_c', 'r_m', 'r_x', 'r_s', 'r_j', 'r_s', 'r_x', 'r_m', 'r_c']
     board[7][1], board[7][7] = 'r_p', 'r_p'
     board[6][0], board[6][2], board[6][4], board[6][6], board[6][8] = 'r_z', 'r_z', 'r_z', 'r_z', 'r_z'
-    
+
     return board
 
 
@@ -198,7 +197,7 @@ def find_all_legal_moves(board, side_to_move, specials_matter=True):
                         elif abs(direction[1]) == 2:
                             if side_to_move not in board[new_coords[0]][new_coords[1]] and board[mover_x][int(mover_y + direction[1]/2)] == '':
                                 all_legal_moves.append([mover_x, mover_y, new_coords[0], new_coords[1]])
-            
+
             elif 'x' == moving_piece:
                 for direction in DOUBLE_DIAGONAL:
                     new_coords = [mover_x + direction[0], mover_y + direction[1]]
@@ -226,10 +225,11 @@ def find_all_legal_moves(board, side_to_move, specials_matter=True):
             if other_king_coords[1] == my_king_coords[1]:  # moved to the same column
                 found_piece_in_between = False
                 for i in range(0, 9):
-                    if (i <= other_king_coords[0] and i <= my_king_coords[0]) or (
-                            i >= other_king_coords[0] and i >= my_king_coords[0]):
+                    if (other_king_coords[0] > i > my_king_coords[0]) or (
+                            other_king_coords[0] < i < my_king_coords[0]):
                         if board[i][other_king_coords[1]] != '':
                             found_piece_in_between = True
+
                             break
                 if found_piece_in_between:
                     general_good = True
@@ -541,10 +541,15 @@ def main():
         game_over, winner = is_game_over(board, ['r', 'b'][turn_counter % 2], moves_so_far)
 
     print('Game over. Winner:', winner)
+    quit()
 
 
 # running part!!!
 # white = red
+
+
+
+
 if __name__ == "__main__":
     FILENAME = create_filename()
     print('Results saved to', FILENAME)
@@ -552,8 +557,8 @@ if __name__ == "__main__":
     pygame.init()
     screen = pygame.display.set_mode([510, 569])
 
-    player1 = human_player  # red player
-    player2 = mcts_player # black player
+    player1 = mcts_player  # red player
+    player2 = mcts_player  # black player
     # c-chariot, x-elephant, m-horse, s-guard, j-king, z-pawn, p-cannon
     picture_names = ['b_c', 'b_j', 'b_m', 'b_p', 'b_s', 'b_x', 'b_z', 'bg', 'r_c', 'r_j', 'r_m', 'r_p', 'r_s', 'r_x', 'r_z']
     pictures = {}

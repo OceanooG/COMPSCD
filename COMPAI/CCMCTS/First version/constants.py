@@ -1,16 +1,16 @@
 import pygame
 
-SCREEN_WIDTH=600
+SCREEN_WIDTH=900
 SCREEN_HEIGHT=650
-s_x = 50
-s_y = 50
-l_s = 60
+Start_X = 50
+Start_Y = 50
+Line_Span = 60
 
 player1Color = 1
 player2Color = 2
 overColor = 3
 
-BG_COLOR=pygame.Color(255, 255, 255)
+BG_COLOR=pygame.Color(200, 200, 200)
 Line_COLOR=pygame.Color(255, 255, 200)
 TEXT_COLOR=pygame.Color(255, 0, 0)
 
@@ -41,16 +41,3 @@ pieces_images = {
     'r_pawn': pygame.image.load("imgs/s2/r_z.gif"),
 }
 
-class MCTSMeta:
-    EXPLORATION = 0.5
-    RAVE_CONST = 300
-    RANDOMNESS = 0.5
-    POOLRAVE_CAPACITY = 10
-    K_CONST = 10
-    A_CONST = 0.25
-    WARMUP_ROLLOUTS = 7
-
-class GameMeta:
-    PLAYERS = {'none': 0, 'player1Color': 1, 'player2Color': 2}
-    INF = float('inf')
-    GAME_OVER = -1
